@@ -1,0 +1,223 @@
+Challenge 1:
+
+# 3-tier architecture:
+
+The 3-tier architecture is a popular approach that separates an application into three distinct layers.
+
+1. Presentation Layer:
+
+It handles incoming user request and display the results. In this layer first we have to crate resource group and vnet.
+
+Provider "azurerm"{
+   feature{}
+}
+
+#create resource group
+
+Resource "azurerm_resource_group" "rg"{
+name = "dev-rg"
+location = "East US2"
+}
+
+#create Azure Virtual Network
+
+Resource "azurerm_virtual_network" "vnet"{
+name = "dev-vnet"
+location = "East US2"
+vnet_address = ["10.0.0.0/16"]
+resource_group_name = azurerm_resource_group.rg.name
+}
+
+#create Azure Subnet
+
+Resource "azurerm_virtual_subnet" "subnet"{
+name = "dev-subnet"
+resource_group_name = azurerm_resource_group.rg.name
+vnet_name = azurerm_virtual_network.vnet.name
+subnet_address = ["10.0.0.0/24"]
+}
+
+#create load balancer
+
+Resource "azurerm_loadbalancer" "lb"{
+name = "dev-lb"
+location = "East US2"
+resource_group_name = azurerm_resource_group.rg.name
+
+ip_configuration{
+name = "PublicIPAddress"
+public_ip_address_id = azurerm_public_ip.dev-lb_public_ip.id
+}
+}
+
+2. Presentation Layer:
+
+It will process the user requests received from presentation layer.
+
+#create Azure Virtual Machine
+
+Resource "azurerm_virtual_machine" "vm"{
+name = "dev-vm"
+location = "East US2"
+resource_group_name = azurerm_resource_group.rg.name
+network_interface_ids = azurerm_network_interface.den_nic.id
+size = "Standard_B2s"
+username = "deepika44"
+password = "deepika@44"
+disable_password_authentication = false
+
+source_image_reference{
+ publisher = "canonical"
+ offer = "ubuntuserver"
+ sku = "Standard_LRS"
+ version = "latest"
+}
+}
+
+3. Data Layer:
+
+Data layer stores and manage the applications data.
+
+# Create Azure SQL Database for the data layer
+resource "azurerm_sql_server" "database_server" {
+  name                         = "database-server"
+  resource_group_name          = azurerm_resource_group.rg.name
+  location                     = azurerm_resource_group.rg.location
+  version                      = "12.0"
+  administrator_login          = "adminuser"
+  administrator_login_password = "password123"
+}
+
+resource "azurerm_sql_database" "database" {
+  name                         = "example-db"
+  resource_group_name          = azurerm_resource_group.rg.name
+  location                     = azurerm_resource_group.rg.location
+  server_name                  = azurerm_sql_server.database_server.name
+  edition                      = "Basic"
+  requested_service_objective_name = "Basic"
+  collation                    = "SQL_Latin1_General_CP1_CI_AS"
+}
+
+Connection between 3 layers:
+
+# Create Azure Virtual Network Rule to allow access from app tier
+resource "azurerm_sql_virtual_network_rule" "app_network_rule" {
+  name                = "app-network-rule"
+  server_name         = azurerm_sql_server.database_server.name
+  resource_group_name = azurerm_resource_group.rg.name
+  subnet_id           = azurerm_subnet.subnet.id
+}
+
+# Connect the web tier to the application tier
+resource "azurerm_lb_backend_address_pool" "web_backend_pool" {
+  name                = "web-backend-pool"
+  loadbalancer_id     = azurerm_lb.web_lb.id
+  resource_group_name = azurerm_resource_group.example_rg.name
+
+  backend_addresses {
+    ip_address = azurerm_virtual_machine.web_instances.*.private_ip_address
+  }
+}
+
+# Connect the application tier to the database tier
+resource "azurerm_virtual_machine_extension" "app_db_extension" {
+  name                 = "app-db-extension"
+  virtual_machine_id   = azurerm_virtual_machine.app_instances[0].id
+  resource_group_name  = azurerm_resource_group.rg.name
+  publisher            = "Microsoft.Azure.Extensions"
+  type                 = "CustomScript"
+  type_handler_version = "2.0"
+
+  settings = <<SETTINGS
+    {
+        "commandToExecute": "sudo apt-get update && sudo apt-get install -y mysql-client"
+    }
+  SETTINGS
+}
+
+# Configure database connection string in the application tier
+resource "azurerm_virtual_machine_extension" "app_db_connection" {
+  name                 = "app-db-connection"
+  virtual_machine_id   = azurerm_virtual_machine.app_instances[0].id
+  resource_group_name  = azurerm_resource_group.rg.name
+  publisher            = "Microsoft.Azure.Extensions"
+  type                 = "CustomScript"
+  type_handler_version = "2.0"
+
+  settings = <<SETTINGS
+    {
+        "commandToExecute": "echo 'export DB_CONNECTION_STRING=<YOUR_DATABASE_CONNECTION_STRING>' >> /etc/environment"
+    }
+  SETTINGS
+}
+
+Approach 2 : store the data in storage account
+
+Resource "azurerm_resource_group" "rg"{  
+name = "${var.prefix}-resources"  name = var.resourcegroupname
+location = "East US2"             location var.location
+}
+
+Resource "azurerm_storage_account" "storage"{
+name = "${var.prefix}-storageaccount"
+name = var.storageaccountname
+resource_group_name = azurerm_resource_group.rg.name
+location = "East US2"
+location = var.storagelocation
+sku = var.sku
+AccessTier = "Standard"
+}
+
+Resource "azurerm_virtual_network" "vnet"{
+name = "${var.prefix}-vnet"
+name = var.vnetname
+resource_group_name = azurerm_resource_group.rg.name
+location = "East US2"
+vnet address = ["10.0.0.0/16"]
+}
+
+Resource "azurerm_subnet" "subnet"{
+name = "internal"
+name = var.subnetname
+virtual_network_name = azurerm_vitual_network.vnet.name
+resource_group_name = azurerm_resource_group.rg.name
+subnet address = ["10.0.0.0/24"]
+}
+
+Resource "azurerm_network_interface" "NIC"{
+name = "${var.prefix}-nic"
+resource_group_name = azurerm_resource_group.rg.name
+location = "East US2"
+
+ip_configuration{
+name = internal
+subnet_id = azurerm_subnet.name.id
+private_ip_address_allocation = 'Dynamic'
+}
+}
+
+Resource "azurerm_linux_virtual_machine" "vm"{
+name = "${var.prefix}-vm"
+resource_group_name = azurerm_resource_group.rg.name
+location "East US2"
+size = "Standard_B2s"
+username = "deepika44"
+password = "ytuywqtetw"
+disable_password_authentication = false
+network_interface_ids = [
+   azurem_network_interface.NIC.id
+]
+
+source_image_reference{
+publisher = "canvolial"
+offer = "gudiuwe"
+sku = "Standard_LRS"
+VERSION = "LATEST"
+}
+
+os_disk{
+ storage_account_type = "Standard_LRS"
+ caching = "ReadWrite"
+}
+}
+
